@@ -2,6 +2,7 @@
 #include "../include/header.h"
 #include "../include/footer.h"
 #include "../include/bitwriter.h"
+#include "../include/endian.h"
 
 #include <stdlib.h>
 
@@ -42,14 +43,9 @@ void blocktype0_encoding(FILE* in, FILE* out) {
 	uint16_t len = (uint16_t)input_size;
 	uint16_t nlen = ~len;
 
-	uint8_t len_bytes[4] = {
-		len & 0xFF,
-		(len >> 8),
-		nlen & 0xFF,
-		(nlen >> 8) & 0xFF
-	};
+	fwrite_u16_le(out, len);
+	fwrite_u16_le(out, nlen);
 
-	fwrite(len_bytes, 1, 4, out);
 	fwrite(input_data, 1, len, out);
 
 	uint32_t crc = crc32(0, input_data, len);

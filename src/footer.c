@@ -1,4 +1,5 @@
 #include "../include/footer.h"
+#include "../include/endian.h"
 
 #include <stdio.h>
 #include <stdint.h>
@@ -49,12 +50,6 @@ static uint32_t crc_table[256] = {
     0xB40BBE37, 0xC30C8EA1, 0x5A05DF1B, 0x2D02EF8D,
 };
 
-static void write_u32_le(FILE* out, uint32_t val) {
-	for (int i = 0; i < 4; i++) {
-		fputc((val >> (8 * i)) & 0xFF, out);
-	}
-}
-
 uint32_t crc32(uint32_t crc, unsigned char* buf, int len) {
 	uint32_t c = crc ^ 0xFFFFFFFF;	
 	
@@ -66,6 +61,11 @@ uint32_t crc32(uint32_t crc, unsigned char* buf, int len) {
 }
 
 void write_gzip_footer(FILE* out, uint32_t crc, uint32_t isize) {
-	write_u32_le(out, crc);
-	write_u32_le(out, isize);
+	if (fwrite_u32_le(out, crc) != 0) {
+		fprintf(stderr, "Error writing CRC32 to gzip footer\n");
+	}
+
+	if (fwrite_u32_le(out, isize) != 0) {
+		fprintf(stderr, "Error writing ISIZE to gzip footer\n");
+	}
 }
