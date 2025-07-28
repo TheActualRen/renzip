@@ -3,6 +3,6 @@
 
 #include <stdio.h>
 
-void blocktype0_encoding(FILE* in, FILE* out);
+int blocktype0_encoding(FILE* in, FILE* out);
 
 #endif 

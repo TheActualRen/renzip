@@ -1,6 +1,6 @@
 #include "../include/header.h"
 
-void write_gzip_header(FILE* out) {
+int write_gzip_header(FILE* out) {
 	uint8_t header[10] = {
 		0x1f,
 		0x8b,
@@ -11,5 +11,13 @@ void write_gzip_header(FILE* out) {
 		0x03
 	};
 
-	fwrite(header, sizeof(header), 1, out);
+	size_t written = fwrite(header, sizeof(header), 1, out);
+
+	if (written != 1){
+		fprintf(stderr, "Error: Failed to write gzip header");
+		return -1;
+	} 
+
+	return 0;
 }
+

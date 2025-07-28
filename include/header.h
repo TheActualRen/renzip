@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <stdint.h>
 
-void write_gzip_header(FILE* out);
+int write_gzip_header(FILE* out);
 
 #endif 
 

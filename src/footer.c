@@ -60,12 +60,15 @@ uint32_t crc32(uint32_t crc, unsigned char* buf, int len) {
 	return c ^ 0xFFFFFFFF;
 }
 
-void write_gzip_footer(FILE* out, uint32_t crc, uint32_t isize) {
+int write_gzip_footer(FILE* out, uint32_t crc, uint32_t isize) {
 	if (fwrite_u32_le(out, crc) != 0) {
 		fprintf(stderr, "Error writing CRC32 to gzip footer\n");
 	}
 
 	if (fwrite_u32_le(out, isize) != 0) {
 		fprintf(stderr, "Error writing ISIZE to gzip footer\n");
+		return -1;
 	}
+
+	return 0;
 }
