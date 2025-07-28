@@ -11,6 +11,8 @@ typedef struct {
 
 	uint8_t bit_buf;
 	uint8_t bit_count;
+
+	int error;
 } BitWriter;
 
 
@@ -22,5 +24,7 @@ void bitwriter_write_bits(BitWriter* bw, uint32_t bits,
 
 void bitwriter_align_byte(BitWriter* bw);
 size_t bitwriter_flush(BitWriter* bw);
+
+int bitwriter_has_error(const BitWriter* bw);
 
 #endif

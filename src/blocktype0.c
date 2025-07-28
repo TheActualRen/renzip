@@ -57,12 +57,39 @@ int blocktype0_encoding(FILE* in, FILE* out) {
 	
 	uint8_t deflate_header_buf[DEFLATE_HEADER_BUF_SIZE] = {0};
 	BitWriter bw;
+
 	bitwriter_init(&bw, deflate_header_buf, DEFLATE_HEADER_BUF_SIZE);
 	bitwriter_write_bits(&bw, IS_LAST_BLOCK, IS_LAST_BLOCK_BIT_COUNT); 
+
+	if (bitwriter_has_error(&bw) != 0) {
+		fprintf(stderr, "Error: Bitwriter buffer overflow while writing IS_LAST bit\n");
+		free(input_data);
+		return -1;
+	}
+
 	bitwriter_write_bits(&bw, BTYPE_UNCOMPRESSED, BTYPE_BIT_COUNT); 
+
+	if (bitwriter_has_error(&bw) != 0) {
+		fprintf(stderr, "Error: Bitwriter buffer overflow while writing BTYPE bits\n");
+		free(input_data);
+		return -1;
+	}
+
 	bitwriter_align_byte(&bw);
 
+	if (bitwriter_has_error(&bw) != 0) {
+		fprintf(stderr, "Error: Bitwriter buffer overflow when aligning the byte\n");
+		free(input_data);
+		return -1;
+	}
+
 	size_t header_len = bitwriter_flush(&bw);
+
+	if (bitwriter_has_error(&bw) != 0) {
+		fprintf(stderr, "Error: Bitwriter buffer overflow when flushing the bitwriter\n");
+		free(input_data);
+		return -1;
+	}
 
 	if (fwrite(deflate_header_buf, 1, header_len, out) != header_len) {
 		fprintf(stderr, "Error writing deflate header\n");
