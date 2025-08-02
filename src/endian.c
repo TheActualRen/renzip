@@ -35,7 +35,7 @@ int fwrite_u32_le(FILE* f, uint32_t val) {
 }
 
 uint16_t read_u16_le(const uint8_t* buf) {
-	return (uint16_t)buf[0] | ((uint16_t)buf[1] >> 8);
+	return (uint16_t)buf[0] | ((uint16_t)buf[1] << 8);
 }
 
 uint32_t read_u32_le(const uint8_t* buf) {

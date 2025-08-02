@@ -51,13 +51,17 @@ static uint32_t crc_table[256] = {
 };
 
 uint32_t crc32(uint32_t crc, unsigned char* buf, int len) {
-	uint32_t c = crc ^ 0xFFFFFFFF;	
+	crc = crc ^ 0xFFFFFFFF;	
 	
-	for (int n = 0; n < len; n++) {
-		c = crc_table[(c ^ buf[n]) & 0xFF] ^ (c >> 8);
+	while (len--) {
+		crc = crc_table[(crc ^ *buf++) & 0xFF] ^ (crc >> 8);
 	}
 
-	return c ^ 0xFFFFFFFF;
+	/*for (int n = 0; n < len; n++) {*/
+	/*	c = crc_table[(c ^ buf[n]) & 0xFF] ^ (c >> 8);*/
+	/*}*/
+	/**/
+	return crc ^ 0xFFFFFFFF;
 }
 
 int write_gzip_footer(FILE* out, uint32_t crc, uint32_t isize) {

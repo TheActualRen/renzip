@@ -61,7 +61,7 @@ int blocktype0_encoding(FILE* in, FILE* out) {
 	bitwriter_init(&bw, deflate_header_buf, DEFLATE_HEADER_BUF_SIZE);
 	bitwriter_write_bits(&bw, IS_LAST_BLOCK, IS_LAST_BLOCK_BIT_COUNT); 
 
-	if (bitwriter_has_error(&bw) != 0) {
+	if (bitwriter_has_error(&bw)) {
 		fprintf(stderr, "Error: Bitwriter buffer overflow while writing IS_LAST bit\n");
 		free(input_data);
 		return -1;
@@ -69,7 +69,7 @@ int blocktype0_encoding(FILE* in, FILE* out) {
 
 	bitwriter_write_bits(&bw, BTYPE_UNCOMPRESSED, BTYPE_BIT_COUNT); 
 
-	if (bitwriter_has_error(&bw) != 0) {
+	if (bitwriter_has_error(&bw)) {
 		fprintf(stderr, "Error: Bitwriter buffer overflow while writing BTYPE bits\n");
 		free(input_data);
 		return -1;
@@ -77,7 +77,7 @@ int blocktype0_encoding(FILE* in, FILE* out) {
 
 	bitwriter_align_byte(&bw);
 
-	if (bitwriter_has_error(&bw) != 0) {
+	if (bitwriter_has_error(&bw)) {
 		fprintf(stderr, "Error: Bitwriter buffer overflow when aligning the byte\n");
 		free(input_data);
 		return -1;
@@ -85,7 +85,7 @@ int blocktype0_encoding(FILE* in, FILE* out) {
 
 	size_t header_len = bitwriter_flush(&bw);
 
-	if (bitwriter_has_error(&bw) != 0) {
+	if (bitwriter_has_error(&bw)) {
 		fprintf(stderr, "Error: Bitwriter buffer overflow when flushing the bitwriter\n");
 		free(input_data);
 		return -1;

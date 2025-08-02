@@ -3,6 +3,7 @@
 
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct {
 	uint8_t* buf;
@@ -12,7 +13,7 @@ typedef struct {
 	uint8_t bit_buf;
 	uint8_t bit_count;
 
-	int error;
+	bool error;
 } BitWriter;
 
 
