@@ -1,0 +1,23 @@
+#ifndef BLOCKTYPE2_H
+#define BLOCKTYPE2_H
+
+#include <stdio.h>
+
+#define BLOCKTYPE2_SUCCESS 0
+#define BLOCKTYPE2_HEADER_FAILURE 1
+#define BLOCKTYPE2_INVALID_INPUT 2
+#define BLOCKTYPE2_MALLOC_FAILURE 3
+#define BLOCKTYPE2_READ_FAILURE 4
+#define BLOCKTYPE2_WRITING_FAILURE 5
+#define BLOCKTYPE2_FOOTER_FAILURE 6
+#define BLOCKTYPE2_LZ77_FAILURE 7
+
+#define IS_LAST_BIT 0x01
+#define IS_LAST_NUM_BITS 1
+
+#define BTYPE2 0x02
+#define BTYPE2_NUM_BITS 2
+
+int blocktype2_encoding(FILE *input_file, FILE *output_file);
+
+#endif

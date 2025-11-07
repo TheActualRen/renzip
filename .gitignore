@@ -1,9 +1,14 @@
+# ignore exe
 renzip
+a.out
 
+#ignore test folder
 /test
 
+#ignore any testing files
 input.txt
-
 output.gz
 
+#ignore all o and d files
 **.o
+**.d

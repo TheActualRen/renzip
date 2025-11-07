@@ -1,0 +1,23 @@
+#ifndef BLOCKTYPE1_H
+#define BLOCKTYPE1_H
+
+#include <stdio.h>
+
+#define BLOCKTYPE1_SUCCESS 0
+#define BLOCKTYPE1_HEADER_FAILURE 1
+#define BLOCKTYPE1_INVALID_INPUT 2
+#define BLOCKTYPE1_MALLOC_FAILURE 3
+#define BLOCKTYPE1_READ_FAILURE 4
+#define BLOCKTYPE1_WRITING_FAILURE 5
+#define BLOCKTYPE1_FOOTER_FAILURE 6
+#define BLOCKTYPE1_LZ77_FAILURE 7
+
+#define IS_LAST_BIT 0x01
+#define IS_LAST_NUM_BITS 1
+
+#define BTYPE1 0x01
+#define BTYPE1_NUM_BITS 2
+
+int blocktype1_encoding(FILE *input_file, FILE *output_file);
+
+#endif
