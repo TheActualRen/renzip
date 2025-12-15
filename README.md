@@ -18,7 +18,7 @@ To use renzip:
 - `output_file` is the gunzip compressed file. You should ideally name it `.gz` at the end. For example `encoded.gz`
 
 ## Compatibility 
-- If all goes well you can take your `encoded,gz` file and use the actual gunzip utility on it.
+- If all goes well you can take your `encoded.gz` file and use the actual gunzip utility on it.
 - Try:
 
 ```bash
