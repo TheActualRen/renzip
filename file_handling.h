@@ -3,10 +3,15 @@
 
 #include <stdio.h>
 
-#define FILE_HANDLING_SUCCESS 0
-#define FILE_HANDLING_FAILURE 1
+typedef enum
+{
+    FILE_HANDLING_SUCCESS = 0,
+    FILE_HANDLING_FAILURE
 
-int readfile_binary(FILE **file, char *filename);
-int writefile_binary(FILE **file, char *filename);
+} FILE_HANDLING_STATUS;
+
+
+FILE_HANDLING_STATUS readfile_binary(FILE **file, char *filename);
+FILE_HANDLING_STATUS writefile_binary(FILE **file, char *filename);
 
 #endif

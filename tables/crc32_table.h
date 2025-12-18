@@ -1,5 +1,5 @@
-#ifndef TABLE_H
-#define TABLE_H
+#ifndef CRC32_TABLE_H
+#define CRC32_TABLE_H
 
 #include <stdint.h>
 

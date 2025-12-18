@@ -1,6 +1,6 @@
 #include "file_handling.h"
 
-int readfile_binary(FILE **file, char *filename)
+FILE_HANDLING_STATUS readfile_binary(FILE **file, char *filename)
 {
     FILE *f = fopen(filename, "rb");
 
@@ -15,7 +15,7 @@ int readfile_binary(FILE **file, char *filename)
     return FILE_HANDLING_SUCCESS;
 }
 
-int writefile_binary(FILE **file, char *filename)
+FILE_HANDLING_STATUS writefile_binary(FILE **file, char *filename)
 {
     FILE *f = fopen(filename, "wb");
 
@@ -29,3 +29,4 @@ int writefile_binary(FILE **file, char *filename)
 
     return FILE_HANDLING_SUCCESS;
 }
+

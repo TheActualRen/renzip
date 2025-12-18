@@ -11,6 +11,7 @@ typedef struct
     uint8_t symbol;
     uint8_t offset_bits;
     uint16_t extra_value;
+
 } RLEItem;
 
 void rle_encode(const uint8_t *input_buf, size_t len,

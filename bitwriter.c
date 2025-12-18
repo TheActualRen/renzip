@@ -1,13 +1,10 @@
 #include "bitwriter.h"
 
-#include <stdio.h>
-
-int bitwriter_init(BitWriter *bw, uint8_t *output_buf, size_t buf_size)
+BITWRITER_STATUS bitwriter_init(BitWriter *bw, uint8_t *output_buf, size_t buf_size)
 {
     if (!bw || !output_buf || buf_size == 0)
     {
-        fprintf(stderr, "Failed BitWriter initialization\n");
-        return BITWRITER_FAILED_INIT;
+        return BITWRITER_INIT_FAILURE;
     }
 
     bw->buf = output_buf;
@@ -19,9 +16,12 @@ int bitwriter_init(BitWriter *bw, uint8_t *output_buf, size_t buf_size)
     return BITWRITER_SUCCESS;
 }
 
-int bitwriter_push_bits(BitWriter *bw, uint32_t bits, uint8_t num_bits)
+BITWRITER_STATUS bitwriter_push_bits(BitWriter *bw, uint32_t bits, uint8_t num_bits)
 {
-    if (!bw || num_bits > 32) return BITWRITER_FAILED_PUSH_BIT;
+    if (!bw || num_bits > 32)
+    {
+        return BITWRITER_PUSH_BIT_FAILURE;
+    }
 
     for (uint8_t i = 0; i < num_bits; i++)
     {
@@ -33,8 +33,7 @@ int bitwriter_push_bits(BitWriter *bw, uint32_t bits, uint8_t num_bits)
         {
             if (bw->byte_pos >= bw->buf_size)
             {
-                fprintf(stderr, "Failed to write bits\n");
-                return BITWRITER_FAILED_PUSH_BIT;
+                return BITWRITER_PUSH_BIT_FAILURE;
             }
 
             bw->buf[bw->byte_pos] = bw->bit_buf;
@@ -48,19 +47,18 @@ int bitwriter_push_bits(BitWriter *bw, uint32_t bits, uint8_t num_bits)
     return BITWRITER_SUCCESS;
 }
 
-int bitwriter_push_bytes(BitWriter *bw, const uint8_t *data, size_t len)
+BITWRITER_STATUS bitwriter_push_bytes(BitWriter *bw, const uint8_t *data, size_t len)
 {
     if (!bw || !data)
     {
-        fprintf(stderr, "Invalid bitwriter or data pointer provided\n");
-        return BITWRITER_FAILED_PUSH_BYTE;
+        return BITWRITER_PUSH_BYTE_FAILURE;
     }
 
     if (bw->bit_count > 0)
     {
         if (bitwriter_flush(bw, NULL) != BITWRITER_SUCCESS)
         {
-            return BITWRITER_FAILED_PUSH_BYTE;
+            return BITWRITER_PUSH_BYTE_FAILURE;
         }
     }
 
@@ -68,30 +66,25 @@ int bitwriter_push_bytes(BitWriter *bw, const uint8_t *data, size_t len)
     {
         if (bitwriter_push_bits(bw, data[i], 8) != BITWRITER_SUCCESS)
         {
-            fprintf(stderr, "Failed pushing byte %zu in bitwriter\n", i);
-            return BITWRITER_FAILED_WRITE;
+            return BITWRITER_PUSH_BYTE_FAILURE;
         }
     }
 
     return BITWRITER_SUCCESS;
 }
 
-int bitwriter_write_bits(BitWriter *bw, FILE *output_file)
+BITWRITER_STATUS bitwriter_write_bits(BitWriter *bw, FILE *output_file)
 {
     if (!bw || !output_file)
     {
-        fprintf(stderr,
-                "Invalid bitwriter or file pointer. Cannot write bits\n");
-        return BITWRITER_FAILED_WRITE;
+        return BITWRITER_WRITE_FAILURE;
     }
 
-    size_t bytes_written =
-        fwrite(bw->buf, sizeof(uint8_t), bw->byte_pos, output_file);
+    size_t bytes_written = fwrite(bw->buf, sizeof(uint8_t), bw->byte_pos, output_file);
 
     if (bytes_written != bw->byte_pos)
     {
-        fprintf(stderr, "Failed to write bits to file\n");
-        return BITWRITER_FAILED_WRITE;
+        return BITWRITER_WRITE_FAILURE;
     }
 
     bw->byte_pos = 0;
@@ -99,14 +92,13 @@ int bitwriter_write_bits(BitWriter *bw, FILE *output_file)
     return BITWRITER_SUCCESS;
 }
 
-int bitwriter_flush(BitWriter *bw, size_t *bytes_written)
+BITWRITER_STATUS bitwriter_flush(BitWriter *bw, size_t *bytes_written)
 {
     if (bw->bit_count > 0)
     {
         if (bw->byte_pos >= bw->buf_size)
         {
-            fprintf(stderr, "Failed to flush BitWriter\n");
-            return BITWRITER_FAILED_FLUSH;
+            return BITWRITER_FLUSH_FAILURE;
         }
 
         bw->buf[bw->byte_pos] = bw->bit_buf;

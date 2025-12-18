@@ -1,311 +1,380 @@
 #include "blocktype2.h"
-#include "header.h"
-#include "lz77.h"
-#include "bitwriter.h"
-#include "huffman_fixed.h"
-#include "huffman_dynamic.h"
-#include "rle.h"
-#include "footer.h"
 
+#include "footer.h"
+#include "header.h"
+#include "huffman_dynamic.h"
+#include "huffman_fixed.h"
+#include "rle.h"
+
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
-static const uint8_t CL_ORDER[] = {
-    16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15
-};
+static const uint8_t CL_ORDER[] = {16, 17, 18, 0, 8,  7, 9,  6, 10, 5,
+                                   11, 4,  12, 3, 13, 2, 14, 1, 15};
 
-int blocktype2_encoding(FILE *input_file, FILE *output_file)
+B2_STATUS build_dynamic_huffman_tables(const LZ77TokenList *tokens,
+                                       DynamicHuffmanTables *t)
+{
+    uint32_t ll_freqs[286] = {0};
+    uint32_t dist_freqs[30] = {0};
+    uint32_t cl_freqs[19] = {0};
+
+    HuffmanDynamicCode *ll_tree = NULL;
+    HuffmanDynamicCode *dist_tree = NULL;
+    HuffmanDynamicCode *cl_tree = NULL;
+
+    uint8_t *len_seq = NULL;
+
+    lz77_count_freq(tokens, ll_freqs, dist_freqs);
+
+    ll_tree = build_huffman_tree(ll_freqs, 286);
+    dist_tree = build_huffman_tree(dist_freqs, 30);
+
+    if (!ll_tree || !dist_tree)
+    {
+        goto fail;
+    }
+
+    generate_code_lengths(ll_tree, t->ll_lengths, 0);
+    generate_code_lengths(dist_tree, t->dist_lengths, 0);
+
+    t->hlit = 286;
+
+    while (t->hlit > 257 && t->ll_lengths[t->hlit - 1] == 0)
+    {
+        t->hlit--;
+    }
+
+    t->hdist = 30;
+
+    while (t->hdist > 1 && t->dist_lengths[t->hdist - 1] == 0)
+    {
+        t->hdist--;
+    }
+
+    size_t len_seq_len = t->hlit + t->hdist;
+    len_seq = malloc(len_seq_len);
+
+    if (!len_seq)
+    {
+        goto fail;
+    }
+
+    memcpy(len_seq, t->ll_lengths, t->hlit);
+    memcpy(len_seq + t->hlit, t->dist_lengths, t->hdist);
+
+    t->rle_seq = malloc(len_seq_len * 2 * sizeof(RLEItem));
+
+    if (!t->rle_seq)
+    {
+        goto fail;
+    }
+
+    rle_encode(len_seq, len_seq_len, t->rle_seq, &t->rle_len);
+
+    for (size_t i = 0; i < t->rle_len; i++)
+    {
+        uint8_t sym = t->rle_seq[i].symbol;
+        if (sym < 19)
+            cl_freqs[sym]++;
+    }
+
+    cl_tree = build_huffman_tree(cl_freqs, 19);
+
+    if (!cl_tree)
+    {
+        goto fail;
+    }
+
+    generate_code_lengths(cl_tree, t->cl_lengths, 0);
+
+    t->hclen = 19;
+
+    while (t->hclen > 4 && t->cl_lengths[CL_ORDER[t->hclen - 1]] == 0)
+    {
+        t->hclen--;
+    }
+
+    build_canonical_codes(t->ll_lengths, t->ll_codes, 286);
+    build_canonical_codes(t->dist_lengths, t->dist_codes, 30);
+    build_canonical_codes(t->cl_lengths, t->cl_codes, 19);
+
+    free(len_seq);
+
+    free_huffman_tree(ll_tree);
+    free_huffman_tree(dist_tree);
+    free_huffman_tree(cl_tree);
+
+    return B2_SUCCESS;
+
+fail:
+    free(len_seq);
+    free(t->rle_seq);
+
+    free_huffman_tree(ll_tree);
+    free_huffman_tree(dist_tree);
+    free_huffman_tree(cl_tree);
+
+    return B2_MALLOC_FAILURE;
+}
+
+B2_STATUS emit_dynamic_huffman_tokens(BitWriter *bw,
+                                      const LZ77TokenList *tokens,
+                                      const HuffmanEmitTables *t)
+{
+    BITWRITER_STATUS bw_status;
+
+    for (size_t i = 0; i < tokens->count; i++)
+    {
+        const LZ77Token *token = &tokens->data[i];
+
+        if (token->type == LZ77_LITERAL)
+        {
+            uint8_t sym = token->literal;
+
+            bw_status =
+                bitwriter_push_bits(bw, t->ll_codes[sym], t->ll_lengths[sym]);
+
+            if (bw_status != BITWRITER_SUCCESS)
+                return B2_WRITING_FAILURE;
+        }
+        else /* LZ77_MATCH */
+        {
+            uint16_t ll_sym, ll_extra;
+            uint8_t ll_bits;
+
+            length_literal_to_code(token->match.len, &ll_sym, &ll_bits,
+                                   &ll_extra);
+
+            bw_status = bitwriter_push_bits(bw, t->ll_codes[ll_sym],
+                                            t->ll_lengths[ll_sym]);
+
+            if (bw_status != BITWRITER_SUCCESS)
+                return B2_WRITING_FAILURE;
+
+            if (ll_bits)
+            {
+                bw_status = bitwriter_push_bits(bw, ll_extra, ll_bits);
+                if (bw_status != BITWRITER_SUCCESS)
+                    return B2_WRITING_FAILURE;
+            }
+
+            uint16_t dist_sym, dist_extra;
+            uint8_t dist_bits;
+
+            dist_literal_to_code(token->match.dist, &dist_sym, &dist_bits,
+                                 &dist_extra);
+
+            bw_status = bitwriter_push_bits(bw, t->dist_codes[dist_sym],
+                                            t->dist_lengths[dist_sym]);
+
+            if (bw_status != BITWRITER_SUCCESS)
+                return B2_WRITING_FAILURE;
+
+            if (dist_bits)
+            {
+                bw_status = bitwriter_push_bits(bw, dist_extra, dist_bits);
+                if (bw_status != BITWRITER_SUCCESS)
+                    return B2_WRITING_FAILURE;
+            }
+        }
+    }
+
+    return B2_SUCCESS;
+}
+
+B2_STATUS emit_dynamic_huffman_header(BitWriter *bw, DynamicHuffmanTables *t) {
+    BITWRITER_STATUS bw_status;
+
+    /* Push HLIT, HDIST, HCLEN */
+    bw_status = bitwriter_push_bits(bw, t->hlit - 257, 5);
+    if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+
+    bw_status = bitwriter_push_bits(bw, t->hdist - 1, 5);
+    if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+
+    bw_status = bitwriter_push_bits(bw, t->hclen - 4, 4);
+    if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+
+    /* Push CL lengths in CL_ORDER */
+    for (int i = 0; i < t->hclen; i++) {
+        bw_status = bitwriter_push_bits(bw, t->cl_lengths[CL_ORDER[i]], 3);
+        if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+    }
+
+    /* Push RLE sequence using CL codes */
+    uint16_t cl_codes[19];
+    build_canonical_codes(t->cl_lengths, cl_codes, 19);
+
+    for (size_t i = 0; i < t->rle_len; i++) {
+        uint8_t sym = t->rle_seq[i].symbol;
+        uint16_t code = cl_codes[sym];
+        uint8_t bitlen = t->cl_lengths[sym];
+
+        bw_status = bitwriter_push_bits(bw, code, bitlen);
+        if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+
+        if (t->rle_seq[i].offset_bits > 0) {
+            bw_status = bitwriter_push_bits(bw,
+                                            t->rle_seq[i].extra_value,
+                                            t->rle_seq[i].offset_bits);
+            if (bw_status != BITWRITER_SUCCESS) return B2_WRITING_FAILURE;
+        }
+    }
+
+    return B2_SUCCESS;
+}
+
+B2_STATUS blocktype2_encoding(FILE *input_file, FILE *output_file)
 {
 
-    if (write_gzip_header(output_file) != GZIP_HEADER_SUCCESS)
+    B2_STATUS status = B2_SUCCESS;
+    uint8_t *input_buf = NULL;
+    uint8_t *compressed_buf = NULL;
+
+    LZ77TokenList tokens = {0};
+    DynamicHuffmanTables tables = {0};
+
+    GZIP_HEADER_STATUS header_status = write_gzip_header(output_file);
+
+    if (header_status != GZIP_HEADER_SUCCESS)
     {
-        fprintf(stderr, "Error writing gzip header, Block Type 0\n");
-        return BLOCKTYPE2_HEADER_FAILURE;
+        return B2_HEADER_FAILURE;
     }
 
     fseek(input_file, 0, SEEK_END);
     size_t input_size = ftell(input_file);
     fseek(input_file, 0, SEEK_SET);
 
-
-    uint8_t *input_buf = malloc(input_size);
+    input_buf = malloc(input_size);
 
     if (!input_buf)
     {
-        fprintf(stderr, "Memory allocation failed for input buffer\n");
-        return BLOCKTYPE2_MALLOC_FAILURE;
+        status = B2_MALLOC_FAILURE;
+        goto cleanup;
     }
 
     size_t bytes_read = fread(input_buf, 1, input_size, input_file);
 
     if (!bytes_read || bytes_read != input_size)
     {
-        fprintf(stderr, "Error: fread read %zu bytes, expected %zu bytes",
-                bytes_read, input_size);
-        free(input_buf);
-        return BLOCKTYPE2_READ_FAILURE;
+        status = B2_READ_FAILURE;
+        goto cleanup;
     }
 
     size_t compressed_size = input_size * 2 + 100;
-    uint8_t *compressed_buf = malloc(compressed_size);
+    compressed_buf = malloc(compressed_size);
 
     if (!compressed_buf)
     {
-        fprintf(stderr, "Memory alloaction failed for compressed buffer\n");
-        free(input_buf);
-        return BLOCKTYPE2_MALLOC_FAILURE;
+        status = B2_MALLOC_FAILURE;
+        goto cleanup;
     }
 
-    LZ77TokenList tokens = {0};
+    LZ77_STATUS lz77_status = lz77_compress(input_buf, input_size, &tokens);
 
-    if (lz77_compress(input_buf, input_size, &tokens) != LZ77_SUCCESS)
+    if (lz77_status != LZ77_SUCCESS)
     {
-        fprintf(stderr, "LZ77 Compression Failed\n");
-        free(input_buf);
-        return BLOCKTYPE2_LZ77_FAILURE;
+        status = B2_LZ77_FAILURE;
+        goto cleanup;
     }
 
     BitWriter bw;
+    BITWRITER_STATUS bw_status =
+        bitwriter_init(&bw, compressed_buf, compressed_size);
 
-    if (bitwriter_init(&bw, compressed_buf, compressed_size) !=
-        BITWRITER_SUCCESS)
+    if (bw_status != BITWRITER_SUCCESS)
     {
-        fprintf(stderr, "Error initializing bitwriter\n");
-        free(input_buf);
-        free(compressed_buf);
-        return BLOCKTYPE2_WRITING_FAILURE;
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
     }
 
-    if (bitwriter_push_bits(&bw, IS_LAST_BIT, IS_LAST_NUM_BITS) !=
-        BITWRITER_SUCCESS)
+    bw_status = bitwriter_push_bits(&bw, IS_LAST_BIT, IS_LAST_NUM_BITS);
+
+    if (bw_status != BITWRITER_SUCCESS)
     {
-        fprintf(stderr, "Error pushing bits\n");
-        free(input_buf);
-        free(compressed_buf);
-        return BLOCKTYPE2_WRITING_FAILURE;
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
     }
 
-    if (bitwriter_push_bits(&bw, BTYPE2, BTYPE2_NUM_BITS) != BITWRITER_SUCCESS)
+    bw_status = bitwriter_push_bits(&bw, BTYPE2, BTYPE2_NUM_BITS);
+
+    if (bw_status != BITWRITER_SUCCESS)
     {
-        fprintf(stderr, "Error pushing bits\n");
-        free(input_buf);
-        free(compressed_buf);
-        return BLOCKTYPE2_WRITING_FAILURE;
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
     }
 
-    uint32_t ll_freqs[286] = {0};
-    uint32_t dist_freqs[30] = {0};
+    status = build_dynamic_huffman_tables(&tokens, &tables);
 
-    for (size_t i = 0; i < tokens.count; i++)
+    if (status != B2_SUCCESS)
     {
-        if (tokens.tokens[i].type == LITERAL)
-        {
-            ll_freqs[tokens.tokens[i].literal]++;
-        }
-
-        else
-        {
-            uint16_t len = tokens.tokens[i].LengthDistPair.len;
-            uint16_t dist = tokens.tokens[i].LengthDistPair.dist;
-
-            uint16_t ll_code_symbol;
-            uint8_t ll_offset_bits;
-            uint16_t ll_extra_value;
-
-            length_literal_to_code(len, &ll_code_symbol, &ll_offset_bits, &ll_extra_value);
-
-            uint16_t dist_code_symbol;
-            uint8_t dist_offset_bits;
-            uint16_t dist_extra_value;
-
-            dist_literal_to_code(dist, &dist_code_symbol, &dist_offset_bits, &dist_extra_value);
-
-            ll_freqs[ll_code_symbol]++;
-            dist_freqs[dist_code_symbol]++;
-        }
-    }
-    ll_freqs[256]++; 
-
-    HuffmanDynamicCode *ll_tree = build_huffman_tree(ll_freqs, 286);
-    HuffmanDynamicCode *dist_tree = build_huffman_tree(dist_freqs, 30);
-
-    uint8_t ll_lengths[286] = {0};
-    uint8_t dist_lengths[30] = {0};
-
-    generate_code_lengths(ll_tree, ll_lengths, 0);
-    generate_code_lengths(dist_tree, dist_lengths, 0);
-
-    uint16_t hlit = 286;
-    while (hlit > 257 && ll_lengths[hlit - 1] == 0) hlit--;
-
-    uint16_t hdist = 30;
-    while (hdist > 1 && dist_lengths[hdist - 1] == 0) hdist--;
-
-    size_t cl_seq_len = hlit + hdist;
-    uint8_t *cl_seq = malloc(cl_seq_len);
-
-    if (!cl_seq)
-    {
-        fprintf(stderr, "Error allocating memory for cl_seq\n");
-
-        free(input_buf);
-        free(compressed_buf);
-
-        lz77_free_tokens(&tokens);
-
-        free_huffman_tree(ll_tree);
-        free_huffman_tree(dist_tree);
-
-        return BLOCKTYPE2_MALLOC_FAILURE;
+        goto cleanup;
     }
 
-    memcpy(cl_seq, ll_lengths, hlit);
-    memcpy(cl_seq + hlit, dist_lengths, hdist);
+    status = emit_dynamic_huffman_header(&bw, &tables);
 
-    RLEItem rle_seq[600];
-    size_t rle_len;
 
-    rle_encode(cl_seq, cl_seq_len, rle_seq, &rle_len);
-
-    uint32_t cl_freqs[19] = {0};
-
-    for (size_t i = 0; i < rle_len; i++)
+    if (status != B2_SUCCESS)
     {
-        uint8_t sym = rle_seq[i].symbol;
-
-        if (sym < 19)
-        {
-            cl_freqs[sym]++;
-        }
+        goto cleanup;
     }
 
-    HuffmanDynamicCode *cl_tree  = build_huffman_tree(cl_freqs, 19);
+    HuffmanEmitTables emit_tables = {.ll_codes = tables.ll_codes,
+                                     .ll_lengths = tables.ll_lengths,
+                                     .dist_codes = tables.dist_codes,
+                                     .dist_lengths = tables.dist_lengths};
 
-    uint8_t cl_lengths[19] = {0};
-    generate_code_lengths(cl_tree, cl_lengths, 0);
+    status = emit_dynamic_huffman_tokens(&bw, &tokens, &emit_tables);
+    if (status != B2_SUCCESS)
+        goto cleanup;
 
-    uint16_t hclen = 19;
+    uint16_t eob_code = tables.ll_codes[256];
+    uint8_t eob_bitlen = tables.ll_lengths[256];
 
-    while (hclen > 4 && cl_lengths[CL_ORDER[hclen - 1]] == 0) hclen--;
+    bw_status = bitwriter_push_bits(&bw, eob_code, eob_bitlen);
 
-    bitwriter_push_bits(&bw, hlit - 257, 5);
-    bitwriter_push_bits(&bw, hdist - 1, 5);
-    bitwriter_push_bits(&bw, hclen - 4, 4);
-
-    for (int i = 0; i < hclen; i++)
+    if (bw_status != BITWRITER_SUCCESS)
     {
-        bitwriter_push_bits(&bw, cl_lengths[CL_ORDER[i]], 3);
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
     }
-
-    uint16_t cl_codes[19];
-    build_canonical_codes(cl_lengths, cl_codes, 19);
-
-    for (size_t i = 0; i < rle_len; i++)
-    {
-        uint8_t sym = rle_seq[i].symbol;
-        uint16_t code = cl_codes[sym];
-        uint8_t bitlen = cl_lengths[sym];
-
-        bitwriter_push_bits(&bw, code, bitlen);
-
-        if (rle_seq[i].offset_bits > 0)
-        {
-            bitwriter_push_bits(&bw, rle_seq[i].extra_value, rle_seq[i].offset_bits);
-        }
-    }
-
-    uint16_t ll_codes[286];
-    uint16_t dist_codes[30];
-
-    build_canonical_codes(ll_lengths, ll_codes, hlit);
-    build_canonical_codes(dist_lengths, dist_codes, hdist);
-
-    for (size_t i = 0; i < tokens.count; i++)
-    {
-        if (tokens.tokens[i].type == LITERAL)
-        {
-            uint8_t symbol = tokens.tokens[i].literal;
-            uint16_t code = ll_codes[symbol];
-            uint8_t bitlen = ll_lengths[symbol];
-
-            bitwriter_push_bits(&bw, code, bitlen);
-        }
-
-        else
-        {
-            uint16_t len = tokens.tokens[i].LengthDistPair.len;
-            uint16_t dist = tokens.tokens[i].LengthDistPair.dist;
-
-            uint16_t ll_code_symbol;
-            uint8_t ll_offset_bits;
-            uint16_t ll_extra_value;
-
-            length_literal_to_code(len, &ll_code_symbol, &ll_offset_bits, &ll_extra_value);
-
-            uint16_t ll_code = ll_codes[ll_code_symbol];
-            uint16_t ll_bitlen = ll_lengths[ll_code_symbol];
-
-            bitwriter_push_bits(&bw, ll_code, ll_bitlen);
-
-            if (ll_offset_bits > 0)
-            {
-                bitwriter_push_bits(&bw, ll_extra_value, ll_offset_bits);
-            }
-
-            uint16_t dist_code_symbol;
-            uint8_t dist_offset_bits;
-            uint16_t dist_extra_value;
-
-            dist_literal_to_code(dist, &dist_code_symbol, &dist_offset_bits, &dist_extra_value);
-
-            uint16_t dist_code = dist_codes[dist_code_symbol];
-            uint16_t dist_bitlen = dist_lengths[dist_code_symbol];
-
-            bitwriter_push_bits(&bw, dist_code, dist_bitlen);
-
-            if (dist_offset_bits > 0)
-            {
-                bitwriter_push_bits(&bw, dist_extra_value, dist_offset_bits);
-            }
-        }
-    }
-
-    uint16_t eob_code = ll_codes[256];
-    uint8_t eob_bitlen = ll_lengths[256];
-
-    bitwriter_push_bits(&bw, eob_code, eob_bitlen);
 
     size_t bytes_written;
-    bitwriter_flush(&bw, &bytes_written);
+    bw_status = bitwriter_flush(&bw, &bytes_written);
 
-    fwrite(compressed_buf, 1, bytes_written, output_file);
-    // bitwriter_write_bits(&bw, output_file);
+    if (bw_status != BITWRITER_SUCCESS)
+    {
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
+    }
+
+    bw_status = bitwriter_write_bits(&bw, output_file);
+
+    if (bw_status != BITWRITER_SUCCESS)
+    {
+        status = B2_WRITING_FAILURE;
+        goto cleanup;
+    }
 
     uint32_t crc = update_crc(0, input_buf, (uint32_t)input_size);
 
-    if (write_gzip_footer(output_file, crc, (uint32_t)input_size) != GZIP_FOOTER_SUCCESS)
+    GZIP_FOOTER_STATUS footer_status =
+        write_gzip_footer(output_file, crc, (uint32_t)input_size);
+
+    if (footer_status != GZIP_FOOTER_SUCCESS)
     {
-        fprintf(stderr, "Error writing gzip footer for Block Type 0\n");
-        free(input_buf);
-        free(compressed_buf);
-
-        lz77_free_tokens(&tokens);
-
-        free_huffman_tree(ll_tree);
-        free_huffman_tree(dist_tree);
-        free_huffman_tree(cl_tree);
-
-        return BLOCKTYPE2_FOOTER_FAILURE;
+        status = B2_FOOTER_FAILURE;
+        goto cleanup;
     }
 
+cleanup:
     free(input_buf);
     free(compressed_buf);
 
     lz77_free_tokens(&tokens);
+    free(tables.rle_seq);
 
-    free_huffman_tree(ll_tree);
-    free_huffman_tree(dist_tree);
-    free_huffman_tree(cl_tree);
-
-    return BLOCKTYPE2_SUCCESS;
+    return status;
 }

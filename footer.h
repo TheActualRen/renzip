@@ -4,10 +4,16 @@
 #include <stdio.h>
 #include <stdint.h>
 
-#define GZIP_FOOTER_SUCCESS 0
-#define GZIP_FOOTER_FAILURE 1
+typedef enum
+{
+    GZIP_FOOTER_SUCCESS = 0,
+    GZIP_CRC_WRITE_FAILURE,
+    GZIP_ISIZE_WRITE_FAILURE
 
-uint32_t update_crc(uint32_t crc, uint8_t *buf, int len);
-int write_gzip_footer(FILE *output_file, uint32_t crc, uint32_t isize);
+} GZIP_FOOTER_STATUS;
+
+uint32_t update_crc(uint32_t crc, uint8_t *buf, size_t len);
+GZIP_FOOTER_STATUS write_gzip_footer(FILE *output_file, uint32_t crc, uint32_t isize);
 
 #endif
+

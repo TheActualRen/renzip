@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+#define MAX_CODELEN 15 
+
 typedef struct HuffmanDynamicCode
 {
     uint16_t symbol;
@@ -10,6 +12,7 @@ typedef struct HuffmanDynamicCode
 
     struct HuffmanDynamicCode *left;
     struct HuffmanDynamicCode *right;
+
 } HuffmanDynamicCode;
 
 HuffmanDynamicCode *build_huffman_tree(uint32_t *freqs, int nsym);

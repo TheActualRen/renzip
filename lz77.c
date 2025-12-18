@@ -1,4 +1,5 @@
 #include "lz77.h"
+#include "huffman_fixed.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,26 +21,27 @@ static int append_token(LZ77TokenList *list, LZ77Token token)
             new_cap = 128;
         }
 
-        LZ77Token *new_tokens = realloc(list->tokens, new_cap * sizeof(LZ77Token));
-        
+        LZ77Token *new_tokens =
+            realloc(list->data, new_cap * sizeof(LZ77Token));
+
         if (!new_tokens)
         {
             fprintf(stderr, "Failed to reallocate memory for new tokens\n");
             return LZ77_REALLOC_FAILURE;
         }
 
-        list->tokens = new_tokens;
+        list->data = new_tokens;
         list->capacity = new_cap;
     }
 
-    list->tokens[list->count] = token;
+    list->data[list->count] = token;
     list->count++;
 
     return LZ77_SUCCESS;
 }
 
-int lz77_compress(const uint8_t *input_buf, size_t input_len,
-                   LZ77TokenList *output_tokens)
+LZ77_STATUS lz77_compress(const uint8_t *input_buf, size_t input_len,
+                          LZ77TokenList *output_tokens)
 {
     memset(output_tokens, 0, sizeof(*output_tokens));
     size_t pos = 0;
@@ -76,39 +78,33 @@ int lz77_compress(const uint8_t *input_buf, size_t input_len,
                 best_len = match_len;
                 best_dist = pos - search;
 
-                if (match_len == MAX_MATCH) break;
+                if (match_len == MAX_MATCH)
+                    break;
             }
         }
 
         if (best_len >= MIN_MATCH)
         {
-            LZ77Token token = 
-            {
-                .type = LENGTH_DIST_PAIR,
-                .LengthDistPair = { .len = best_len, .dist = best_dist }
-            };
+            LZ77Token token = {.type = LZ77_MATCH,
+                               .match = {.len = best_len, .dist = best_dist}};
 
             if (append_token(output_tokens, token) != LZ77_SUCCESS)
             {
                 fprintf(stderr, "Error Appending token\n");
-                return LZ77_APPENDING_TOKEN_FAILURE;
+                return LZ77_APPEND_TOKEN_FAILURE;
             }
 
             pos += best_len;
         }
 
-        else 
+        else
         {
-            LZ77Token token = 
-            {
-                .type = LITERAL,
-                .literal = input_buf[pos]
-            };
+            LZ77Token token = {.type = LZ77_LITERAL, .literal = input_buf[pos]};
 
             if (append_token(output_tokens, token) != LZ77_SUCCESS)
             {
                 fprintf(stderr, "Error Appending token\n");
-                return LZ77_APPENDING_TOKEN_FAILURE;
+                return LZ77_APPEND_TOKEN_FAILURE;
             }
 
             pos++;
@@ -118,17 +114,56 @@ int lz77_compress(const uint8_t *input_buf, size_t input_len,
     return LZ77_SUCCESS;
 }
 
-int lz77_free_tokens(LZ77TokenList *list)
+LZ77_STATUS lz77_free_tokens(LZ77TokenList *list)
 {
-    if (!list || !list->tokens)
+    if (!list || !list->data)
     {
         fprintf(stderr, "Error freeing lz77 tokens\n");
         return LZ77_FREEING_FAILURE;
     }
 
-    free(list->tokens);
-    list->tokens = NULL;
+    free(list->data);
+    list->data = NULL;
     list->count = 0;
     list->capacity = 0;
     return LZ77_SUCCESS;
+}
+
+void lz77_count_freq(const LZ77TokenList *tokens, uint32_t ll_freqs[286],
+                     uint32_t dist_freqs[30])
+{
+    for (size_t i = 0; i < tokens->count; i++)
+    {
+        const LZ77Token *token = &tokens->data[i];
+
+        if (token->type == LZ77_LITERAL)
+        {
+            ll_freqs[token->literal]++;
+        }
+
+        else 
+        {
+            uint16_t len = token->match.len;
+            uint16_t dist = token->match.dist;
+
+            uint16_t ll_code_symbol;
+            uint8_t ll_offset_bits;
+            uint16_t ll_extra_value;
+
+            length_literal_to_code(len, &ll_code_symbol, &ll_offset_bits,
+                                   &ll_extra_value);
+
+            uint16_t dist_code_symbol;
+            uint8_t dist_offset_bits;
+            uint16_t dist_extra_value;
+
+            dist_literal_to_code(dist, &dist_code_symbol, &dist_offset_bits,
+                                 &dist_extra_value);
+
+            ll_freqs[ll_code_symbol]++;
+            dist_freqs[dist_code_symbol]++;
+        }
+    }
+
+    ll_freqs[256]++;
 }

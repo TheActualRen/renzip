@@ -3,9 +3,15 @@
 
 #include <stdio.h>
 
-#define GZIP_HEADER_SUCCESS 0
-#define GZIP_HEADER_FAILURE 1
+#define N_HEADER_BYTES 10
 
-int write_gzip_header(FILE *output_file);
+typedef enum
+{
+    GZIP_HEADER_SUCCESS = 0,
+    GZIP_HEADER_WRITE_FAILURE
+
+} GZIP_HEADER_STATUS;
+
+GZIP_HEADER_STATUS write_gzip_header(FILE *output_file);
 
 #endif

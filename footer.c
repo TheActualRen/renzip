@@ -1,11 +1,11 @@
 #include "footer.h"
-#include "tools/table.h"
+#include "tables/crc32_table.h"
 
-uint32_t update_crc(uint32_t crc, uint8_t *buf, int len)
+uint32_t update_crc(uint32_t crc, uint8_t *buf, size_t len)
 {
     uint32_t c = crc ^ 0xFFFFFFFF;
 
-    for (int n = 0; n < len; n++)
+    for (size_t n = 0; n < len; n++)
     {
         c = table[(c ^ buf[n]) & 0xFF] ^ (c >> 8);
     }
@@ -13,18 +13,20 @@ uint32_t update_crc(uint32_t crc, uint8_t *buf, int len)
     return c ^ 0xFFFFFFFF;
 }
 
-int write_gzip_footer(FILE *output_file, uint32_t crc, uint32_t isize)
+GZIP_FOOTER_STATUS write_gzip_footer(FILE *output_file, uint32_t crc, uint32_t isize)
 {
-    if (!fwrite(&crc, sizeof(uint32_t), 1, output_file))
+    size_t bytes_written = fwrite(&crc, sizeof(uint32_t), 1, output_file);
+
+    if (bytes_written != 1)
     {
-        fprintf(stderr, "Error writing CRC32 in the gzip footer\n");
-        return GZIP_FOOTER_FAILURE;
+        return GZIP_CRC_WRITE_FAILURE;
     }
 
-    if (!fwrite(&isize, sizeof(uint32_t), 1, output_file))
+    bytes_written = fwrite(&isize, sizeof(uint32_t), 1, output_file);
+
+    if (bytes_written != 1)
     {
-        fprintf(stderr, "Error writing ISIZE in the gzip footer\n");
-        return GZIP_FOOTER_FAILURE;
+        return GZIP_ISIZE_WRITE_FAILURE;
     }
 
     return GZIP_FOOTER_SUCCESS;

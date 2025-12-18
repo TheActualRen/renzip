@@ -3,7 +3,7 @@
 
 void write_crc_table(uint32_t *crc_table)
 {
-    FILE *file = fopen("table.c", "wa");
+    FILE *file = fopen("crc32_table.c", "wa");
 
     if (!file)
     {

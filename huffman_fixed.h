@@ -10,6 +10,7 @@ typedef struct
 {
     uint16_t code;
     uint8_t bitlen;
+
 } HuffmanFixedCode;
 
 void init_fixed_huffman_tables(void);

@@ -2,12 +2,12 @@
 
 #include <stdint.h>
 
-int write_gzip_header(FILE *output_file)
-{   
-    uint8_t header_bytes[10] = 
+GZIP_HEADER_STATUS write_gzip_header(FILE *output_file)
+{
+    uint8_t header_bytes[N_HEADER_BYTES] = 
     {
-        0x1f,
-        0x8b,
+        0x1F,
+        0x8B,
         0x08,
         0x00,
         0x00, 0x00, 0x00, 0x00,
@@ -15,10 +15,12 @@ int write_gzip_header(FILE *output_file)
         0x03
     };
 
-    if (!fwrite(header_bytes, sizeof(uint8_t), 10, output_file))
+    size_t bytes_written = fwrite(header_bytes, sizeof(uint8_t), N_HEADER_BYTES, output_file);
+
+    if (bytes_written != N_HEADER_BYTES)
+
     {
-        fprintf(stderr, "Error writing the gzip header\n");
-        return GZIP_HEADER_FAILURE;
+        return GZIP_HEADER_WRITE_FAILURE;
     }
 
     return GZIP_HEADER_SUCCESS;
