@@ -14,6 +14,7 @@ SRCS += header.c
 SRCS += footer.c
 
 SRCS += bitwriter.c
+SRCS += bitreader.c
 
 SRCS += lz77.c
 SRCS += huffman_fixed.c

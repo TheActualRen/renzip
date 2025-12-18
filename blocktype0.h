@@ -23,9 +23,11 @@ typedef enum
     B0_READ_FAILURE,
     B0_WRITING_FAILURE,
     B0_FOOTER_FAILURE,
+    B0_INVALID_BLOCKTYPE
 
 } B0_STATUS;
 
 B0_STATUS blocktype0_encoding(FILE *input_file, FILE *output_file);
+B0_STATUS blocktype0_decoding(FILE *input_file, FILE *output_file);
 
 #endif
