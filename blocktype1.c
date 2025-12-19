@@ -3,6 +3,7 @@
 #include "footer.h"
 #include "header.h"
 #include "huffman_fixed.h"
+#include "bitreader.h"
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -61,10 +62,7 @@ B1_STATUS write_fixed_huffman_block(BitWriter *bw,
             uint8_t dist_bits;
 
             dist_literal_to_code(dist, &dist_sym, &dist_bits, &dist_extra);
-
-            HuffmanFixedCode dist_code = get_fixed_dist_code(dist_sym);
-
-            bw_status =
+HuffmanFixedCode dist_code = get_fixed_dist_code(dist_sym); bw_status =
                 bitwriter_push_bits(bw, dist_code.code, dist_code.bitlen);
 
             if (bw_status != BITWRITER_SUCCESS)
@@ -215,6 +213,228 @@ cleanup:
     free(compressed_buf);
 
     lz77_free_tokens(&tokens);
+
+    return status;
+}
+
+static B1_STATUS grow_output_buffer(uint8_t **buf, size_t *capacity)
+{
+    size_t new_cap = (*capacity) * 2;
+
+    uint8_t *new_buf = realloc(*buf, new_cap);
+    if (!new_buf)
+    {
+        return B1_MALLOC_FAILURE;
+    }
+
+    *buf = new_buf;
+    *capacity = new_cap;
+    return B1_SUCCESS;
+}
+
+B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file)
+{
+    B1_STATUS status = B1_SUCCESS;
+
+    uint8_t *input_buf = NULL;
+    uint8_t *output_data = NULL;
+
+    GZIP_HEADER_STATUS header_status = read_gzip_header(input_file);
+
+    if (header_status != GZIP_HEADER_SUCCESS)
+    {
+        status = B1_HEADER_FAILURE;
+        goto cleanup;
+    }
+
+    fseek(input_file, 0, SEEK_END);
+    size_t file_size = ftell(input_file);
+    fseek(input_file, 10, SEEK_SET);
+
+    size_t compressed_size = file_size - 10 - 8;
+
+    input_buf = malloc(compressed_size);
+
+    if (!input_buf)
+    {
+        status = B1_MALLOC_FAILURE;
+        goto cleanup;
+    }
+
+    size_t bytes_read = fread(input_buf, 1, compressed_size, input_file);
+
+    if (bytes_read != compressed_size)
+    {
+        status = B1_READ_FAILURE;
+        goto cleanup;
+    }
+
+    BitReader br;
+    BITREADER_STATUS br_status = bitreader_init(&br, input_buf, compressed_size);
+
+    if (br_status != BITREADER_SUCCESS)
+    {
+        status = B1_READ_FAILURE;
+        goto cleanup;
+    }
+
+    uint32_t bfinal, btype;
+    br_status = bitreader_read_bits(&br, &bfinal, IS_LAST_NUM_BITS);
+
+    if (br_status != BITREADER_SUCCESS)
+    {
+        status = B1_READ_FAILURE;
+        goto cleanup;
+    }
+
+    br_status = bitreader_read_bits(&br, &btype, BTYPE1_NUM_BITS);
+
+    if (br_status != BITREADER_SUCCESS)
+    {
+        status = B1_READ_FAILURE;
+        goto cleanup;
+    }
+
+    if (btype != BTYPE1)
+    {
+        status = B1_INVALID_BLOCKTYPE;
+        goto cleanup;
+    }
+
+    init_fixed_huffman_tables();
+
+    size_t output_capacity = 1024;
+    size_t out_size = 0;
+    output_data = malloc(output_capacity);
+
+    if (!output_data)
+    {
+        status = B1_MALLOC_FAILURE;
+        goto cleanup;
+    }
+   
+
+    while (1)
+    {
+        uint16_t sym;
+
+        status = decode_fixed_literal_or_length(&br, &sym);
+        if (status != B1_SUCCESS)
+        {
+            goto cleanup;
+        }
+
+        if (sym < 256)
+        {
+            if (out_size >= output_capacity)
+            {
+                status = grow_output_buffer(&output_data, &output_capacity);
+
+                if (status != B1_SUCCESS)
+                {
+                    goto cleanup;
+                }
+            }
+
+            output_data[out_size++] = (uint8_t)sym;
+        }
+
+        else if (sym == 256)
+        {
+            break;
+        }
+
+        else if (sym >= 257 && sym <= 285)
+        {
+            uint16_t length;
+            status = decode_length_symbol(sym, &br, &length);
+
+            if (status != B1_SUCCESS)
+            {
+                goto cleanup;
+            }
+
+            uint16_t dist_sym;
+            status = decode_fixed_distance_symbol(&br, &dist_sym);
+
+            if (status != B1_SUCCESS)
+            {
+                goto cleanup;
+            }
+
+
+            uint16_t distance;
+
+            status = decode_distance_symbol(dist_sym, &br, &distance);
+            if (status != B1_SUCCESS)
+            {
+                goto cleanup;
+            }
+
+            if (distance == 0 || distance > out_size)
+            {
+                status = B1_DECODE_FAILURE;
+                goto cleanup;
+            }
+
+            for (uint16_t i = 0; i < length; i++)
+            {
+                uint8_t byte = output_data[out_size - distance];
+
+                if (out_size >= output_capacity)
+                {
+                    status = grow_output_buffer(&output_data, &output_capacity);
+
+                    if (status != B1_SUCCESS)
+                    {
+                        goto cleanup;
+                    }
+                }
+
+                output_data[out_size++] = byte;
+            }
+        }
+
+        else
+        {
+            status = B1_DECODE_FAILURE;
+            goto cleanup;
+        }
+    }
+
+    uint32_t stored_crc, stored_isize;
+
+    if (fread(&stored_crc, 4, 1, input_file) != 1)
+    {
+        return B1_READ_FAILURE;
+    }
+
+
+    if (fread(&stored_isize, 4, 1, input_file) != 1)
+    {
+        status = B1_READ_FAILURE;
+        goto cleanup;
+    }
+
+    uint32_t valid_crc = update_crc(0, output_data, out_size);
+
+    if (stored_crc != valid_crc)
+    {
+        status = B1_FOOTER_FAILURE;
+        goto cleanup;
+    }
+
+    if (stored_isize != (out_size & 0xFFFFFFFF))
+    {
+        status = B1_FOOTER_FAILURE;
+        goto cleanup;
+    }
+
+    fwrite(output_data, 1, out_size, output_file);
+
+cleanup:
+    free(input_buf);
+    free(output_data);
 
     return status;
 }

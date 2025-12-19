@@ -1,17 +1,14 @@
 #include "huffman_fixed.h"
 #include "tables/fixed_huffman_tables.h"
 
-
 static HuffmanFixedCode ll_codes[NUM_LL_CODES];
 static HuffmanFixedCode dist_codes[NUM_DIST_CODES];
-
 
 static uint16_t reverse_bits(uint16_t code, uint8_t bitlen)
 {
     uint16_t reversed = 0;
 
-    for (uint8_t i = 0; i < bitlen; i++)
-    {
+    for (uint8_t i = 0; i < bitlen; i++) {
         reversed = (reversed << 1) | (code & 1);
         code >>= 1;
     }
@@ -23,17 +20,20 @@ static uint16_t reverse_bits(uint16_t code, uint8_t bitlen)
  * Huffman Codes are prefix codes.
  * They DO NOT constitute as numbers, so they DO NOT follow RULE #1
  *
- * RULE #1: Whenever a numerical value is pushed into the bit stream 
- * (regardless of how many bits it occupies) 
- * that will always be pushed from LSB to MSB into the bit stream. 
- * This applies to all numerical values (like a binary sequence representing a number)
- * IT DOES NOT APPLY TO ARBITRARY BIT SEQUENCES (like Huffman / Prefix codes)
+ * RULE #1: Whenever a numerical value is pushed into the bit stream
+ * (regardless of how many bits it occupies)
+ * that will always be pushed from LSB to MSB into the bit stream.
+ * This applies to all numerical values (like a binary sequence representing a
+ * number) IT DOES NOT APPLY TO ARBITRARY BIT SEQUENCES (like Huffman / Prefix
+ * codes)
  *
  * So, it makes sense to pre-reverse the codes during intialization.
- * This allows us to push them using our bitwriter and therefore not need any extra functions.
+ * This allows us to push them using our bitwriter and therefore not need any
+ * extra functions.
  *
- * The HEX codes used to instantiate the codes can be found in Section 3.2.6 of RFC 1951
-*/
+ * The HEX codes used to instantiate the codes can be found in Section 3.2.6 of
+ * RFC 1951
+ */
 
 void init_fixed_huffman_tables(void)
 {
@@ -69,10 +69,12 @@ void init_fixed_huffman_tables(void)
 }
 
 void length_literal_to_code(uint16_t length, uint16_t *code,
-        uint8_t *offset_bits, uint16_t *extra_value)
+                            uint8_t *offset_bits, uint16_t *extra_value)
 {
-    if (length < 3) length = 3;
-    if (length > 258) length = 258;
+    if (length < 3)
+        length = 3;
+    if (length > 258)
+        length = 258;
 
     for (int i = 0; i < 29; i++)
     {
@@ -104,11 +106,13 @@ void length_literal_to_code(uint16_t length, uint16_t *code,
     *extra_value = 0;
 }
 
-void dist_literal_to_code(uint16_t dist, uint16_t *code,
-        uint8_t *offset_bits, uint16_t *extra_value)
+void dist_literal_to_code(uint16_t dist, uint16_t *code, uint8_t *offset_bits,
+                          uint16_t *extra_value)
 {
-    if (dist == 0) dist = 1;
-    if (dist > 32768) dist = 32768;
+    if (dist == 0)
+        dist = 1;
+    if (dist > 32768)
+        dist = 32768;
 
     for (int i = 0; i < 30; i++)
     {
@@ -145,13 +149,9 @@ HuffmanFixedCode get_fixed_literal_code(uint16_t symbol)
     return ll_codes[symbol];
 }
 
-HuffmanFixedCode get_fixed_dist_code(uint16_t dist)
-{
-    return dist_codes[dist];
-}
+HuffmanFixedCode get_fixed_dist_code(uint16_t dist) { return dist_codes[dist]; }
 
-void build_canonical_codes(const uint8_t *lengths, uint16_t *codes,
-        int nsym)
+void build_canonical_codes(const uint8_t *lengths, uint16_t *codes, int nsym)
 {
     uint16_t bl_count[16] = {0};
 
@@ -187,4 +187,177 @@ void build_canonical_codes(const uint8_t *lengths, uint16_t *codes,
             codes[i] = 0;
         }
     }
+}
+
+
+B1_STATUS decode_length_symbol(uint16_t sym, BitReader *br, 
+        uint16_t *out_length)
+{
+    if (sym < 257 || sym > 285)
+    {
+        return B1_DECODE_FAILURE;
+    }
+
+    uint16_t idx = sym - 257;
+    uint16_t base = ll_range_start[idx];
+    uint8_t extra_bits = ll_offset_bits[idx];
+
+    uint32_t extra = 0;
+    if (extra_bits > 0)
+    {
+        BITREADER_STATUS br_status = bitreader_read_bits(br, &extra, extra_bits) ;
+
+        if (br_status != BITREADER_SUCCESS)
+        {
+            return B1_READ_FAILURE;
+        }
+    }
+
+    *out_length = base + extra;
+    return B1_SUCCESS;
+}
+
+B1_STATUS decode_fixed_distance_symbol(BitReader *br, uint16_t *out_sym)
+{
+    uint32_t code;
+    BITREADER_STATUS br_status = bitreader_peek_bits(br, &code, 5);
+    if (br_status != BITREADER_SUCCESS)
+    {
+        return B1_READ_FAILURE;
+    }
+
+    for (uint16_t i = 0; i < 30; i++)
+    {
+        if (code == dist_codes[i].code)
+        {
+            br_status = bitreader_drop_bits(br, 5);
+            if (br_status != BITREADER_SUCCESS)
+            {
+                return B1_READ_FAILURE;
+            }
+
+            *out_sym = i;
+            return B1_SUCCESS;
+        }
+    }
+
+    *out_sym = 0; // fallback to avoid crash
+    return B1_DECODE_FAILURE;
+}
+
+B1_STATUS decode_distance_symbol(uint16_t sym, BitReader *br,
+        uint16_t *out_distance)
+{
+    if (sym > 29)
+    {
+        return B1_DECODE_FAILURE;
+    }
+
+    uint16_t base = dist_range_start[sym];
+    uint8_t extra_bits = dist_offset_bits[sym];
+
+    uint32_t extra = 0;
+    if (extra_bits > 0)
+    {
+        BITREADER_STATUS br_status = bitreader_read_bits(br, &extra, extra_bits);
+        if (br_status != BITREADER_SUCCESS)
+        {
+            return B1_READ_FAILURE;
+        }
+    }
+
+    *out_distance = base + extra;
+    return B1_SUCCESS;
+}
+
+B1_STATUS decode_fixed_literal_or_length(BitReader *br, uint16_t *out_sym)
+{
+    uint32_t code;
+
+    BITREADER_STATUS br_status = bitreader_peek_bits(br, &code, 7);
+
+    if (br_status != BITREADER_SUCCESS)
+    {
+        return B1_READ_FAILURE;
+    }
+
+    for (uint16_t sym = 256; sym <= 279; sym++)
+    {
+        if (code == ll_codes[sym].code)
+        {
+            br_status = bitreader_drop_bits(br, 7);
+
+            if (br_status != BITREADER_SUCCESS)
+            {
+                return B1_READ_FAILURE;
+            }
+
+            *out_sym = sym;
+            return B1_SUCCESS;
+        }
+    }
+
+    br_status = bitreader_peek_bits(br, &code, 8);
+
+    if (br_status != BITREADER_SUCCESS)
+    {
+        return B1_READ_FAILURE;
+    }
+
+    for (uint16_t sym = 0; sym <= 143; sym++)
+    {
+        if (code == ll_codes[sym].code)
+        {
+            br_status = bitreader_drop_bits(br, 8);
+
+            if (br_status != BITREADER_SUCCESS)
+            {
+                return B1_READ_FAILURE;
+            }
+
+            *out_sym = sym;
+            return B1_SUCCESS;
+        }
+    }
+
+    for (uint16_t sym = 280; sym <= 287; sym++)
+    {
+        if (code == ll_codes[sym].code)
+        {
+            br_status = bitreader_drop_bits(br, 8);
+
+            if (br_status != BITREADER_SUCCESS)
+            {
+                return B1_READ_FAILURE;
+            }
+
+            *out_sym = sym;
+            return B1_SUCCESS;
+        }
+    }
+
+    br_status = bitreader_peek_bits(br, &code, 9);
+    
+    if (br_status != BITREADER_SUCCESS)
+    {
+        return B1_READ_FAILURE;
+    }
+
+    for (uint16_t sym = 144; sym <= 255; sym++)
+    {
+        if (code == ll_codes[sym].code)
+        {
+            br_status = bitreader_drop_bits(br, 9);
+
+            if (br_status != BITREADER_SUCCESS)
+            {
+                return B1_READ_FAILURE;
+            }
+
+            *out_sym = sym;
+            return B1_SUCCESS;
+        }
+    }
+
+    return B1_DECODE_FAILURE;
 }

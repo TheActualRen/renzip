@@ -23,6 +23,8 @@ typedef enum
     B1_FOOTER_FAILURE,
     B1_LZ77_FAILURE,
     B1_INVALID_BLOCKTYPE,
+    B1_DECODE_FAILURE
+
 } B1_STATUS;
 
 
@@ -30,5 +32,6 @@ B1_STATUS write_fixed_huffman_block(BitWriter *bw,
         const LZ77TokenList *tokens);
 
 B1_STATUS blocktype1_encoding(FILE *input_file, FILE *output_file);
+B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file);
 
 #endif

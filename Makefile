@@ -1,7 +1,8 @@
 EXE := renzip
 CC  := gcc
 
-CFLAGS := -Wall -Wextra -std=c99 -O3 -MMD -MP
+# CFLAGS := -Wall -Wextra -std=c99 -O3 -MMD -MP
+CFLAGS := -Wall -Wextra -std=c99 -O0 -g -fsanitize=address,undefined
 
 SRCS :=
 SRCS += main.c
