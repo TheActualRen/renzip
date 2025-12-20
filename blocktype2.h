@@ -25,6 +25,7 @@ typedef enum
     B2_FOOTER_FAILURE,
     B2_LZ77_FAILURE,
     B2_INVALID_BLOCKTYPE,
+    B2_DECODE_FAILURE
 
 } B2_STATUS;
 
@@ -66,5 +67,6 @@ B2_STATUS emit_dynamic_huffman_tokens(BitWriter *bw,
 B2_STATUS emit_dynamic_huffman_header(BitWriter *bw, DynamicHuffmanTables *t);
 
 B2_STATUS blocktype2_encoding(FILE *input_file, FILE *output_file);
+B2_STATUS blocktype2_decoding(FILE *input_file, FILE *output_file);
 
 #endif

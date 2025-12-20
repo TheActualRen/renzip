@@ -3,6 +3,7 @@
 
 #include "bitreader.h"
 #include "blocktype1.h"
+#include "blocktype2.h"
 
 #include <stdint.h>
 
@@ -30,9 +31,19 @@ HuffmanFixedCode get_fixed_dist_code(uint16_t dist);
 void build_canonical_codes(const uint8_t *lengths, uint16_t *codes,
         int nsym);
 
-B1_STATUS decode_length_symbol(uint16_t sym, BitReader *br, uint16_t *out_length);
-B1_STATUS decode_fixed_distance_symbol(BitReader *br, uint16_t *out_sym);
-B1_STATUS decode_distance_symbol(uint16_t sym, BitReader *br, uint16_t *out_distance);
-B1_STATUS decode_fixed_literal_or_length(BitReader *br, uint16_t *out_sym);
+B1_STATUS decode_length_symbol_b1(uint32_t sym, BitReader *br, uint16_t *out_length);
+B1_STATUS decode_fixed_distance_symbol_b1(BitReader *br, uint16_t *out_sym);
+B1_STATUS decode_distance_symbol_b1(uint32_t sym, BitReader *br, uint16_t *out_distance);
+B1_STATUS decode_fixed_literal_or_length_b1(BitReader *br, uint32_t *out_sym);
+
+uint32_t decode_fixed_literal_or_length(BitReader *br);
+uint16_t decode_length_symbol(uint16_t sym, BitReader *br);
+uint32_t decode_fixed_distance_symbol(BitReader *br);
+uint16_t decode_distance_symbol(uint32_t sym, BitReader *br);
+
+// B2_STATUS decode_length_symbol_b2(uint32_t sym, BitReader *br, uint16_t *out_length);
+// B2_STATUS decode_fixed_distance_symbol_b2(BitReader *br, uint16_t *out_sym);
+// B2_STATUS decode_distance_symbol_b2(uint32_t sym, BitReader *br, uint32_t *out_distance);
+// B2_STATUS decode_fixed_literal_or_length_b2(BitReader *br, uint32_t *out_sym);
 
 #endif

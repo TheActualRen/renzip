@@ -182,7 +182,7 @@ int main(int argc, char *argv[])
         readfile_binary(&input_file, argv[3]);
         writefile_binary(&output_file, argv[4]);
 
-        // blocktype2_decoding(input_file, output_file);
+        blocktype2_decoding(input_file, output_file);
         printf("Block Type 2 Decoding\n");
     }
 

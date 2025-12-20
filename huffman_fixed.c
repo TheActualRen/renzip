@@ -190,7 +190,7 @@ void build_canonical_codes(const uint8_t *lengths, uint16_t *codes, int nsym)
 }
 
 
-B1_STATUS decode_length_symbol(uint16_t sym, BitReader *br, 
+B1_STATUS decode_length_symbol_b1(uint32_t sym, BitReader *br, 
         uint16_t *out_length)
 {
     if (sym < 257 || sym > 285)
@@ -217,7 +217,7 @@ B1_STATUS decode_length_symbol(uint16_t sym, BitReader *br,
     return B1_SUCCESS;
 }
 
-B1_STATUS decode_fixed_distance_symbol(BitReader *br, uint16_t *out_sym)
+B1_STATUS decode_fixed_distance_symbol_b1(BitReader *br, uint16_t *out_sym)
 {
     uint32_t code;
     BITREADER_STATUS br_status = bitreader_peek_bits(br, &code, 5);
@@ -245,7 +245,7 @@ B1_STATUS decode_fixed_distance_symbol(BitReader *br, uint16_t *out_sym)
     return B1_DECODE_FAILURE;
 }
 
-B1_STATUS decode_distance_symbol(uint16_t sym, BitReader *br,
+B1_STATUS decode_distance_symbol_b1(uint32_t sym, BitReader *br,
         uint16_t *out_distance)
 {
     if (sym > 29)
@@ -270,7 +270,7 @@ B1_STATUS decode_distance_symbol(uint16_t sym, BitReader *br,
     return B1_SUCCESS;
 }
 
-B1_STATUS decode_fixed_literal_or_length(BitReader *br, uint16_t *out_sym)
+B1_STATUS decode_fixed_literal_or_length_b1(BitReader *br, uint32_t *out_sym)
 {
     uint32_t code;
 
@@ -360,4 +360,100 @@ B1_STATUS decode_fixed_literal_or_length(BitReader *br, uint16_t *out_sym)
     }
 
     return B1_DECODE_FAILURE;
+}
+
+uint16_t decode_length_symbol(uint16_t sym, BitReader *br)
+{
+    if (sym < 257 || sym > 285)
+        return 0;
+
+    int idx = sym - 257;
+    uint16_t base = ll_range_start[idx];
+    uint8_t extra_bits = ll_offset_bits[idx];
+
+    if (extra_bits == 0)
+        return base;
+
+    uint32_t extra = 0;
+    bitreader_read_bits(br, &extra, extra_bits);
+
+    return base + extra;
+}
+
+uint32_t decode_fixed_distance_symbol(BitReader *br)
+{
+    uint32_t code;
+    bitreader_peek_bits(br, &code, 5);
+
+    for (uint16_t i = 0; i < 30; i++)
+    {
+        if (code == dist_codes[i].code) {
+            bitreader_drop_bits(br, 5);
+            return i;
+        }
+    }
+
+    fprintf(stderr, "Error: invalid fixed distance code\n");
+    return 0;
+}
+
+uint16_t decode_distance_symbol(uint32_t sym, BitReader *br)
+{
+    if (sym > 29)
+        return 1;
+
+    uint16_t base = dist_range_start[sym];
+    uint8_t extra_bits = dist_offset_bits[sym];
+
+    if (extra_bits == 0)
+        return base;
+
+    uint32_t extra = 0;
+    bitreader_read_bits(br, &extra, extra_bits);
+
+    return base + extra;
+}
+
+uint32_t decode_fixed_literal_or_length(BitReader *br)
+{
+    uint32_t code = 0;
+
+    // Try 7-bit codes (256–279)
+    bitreader_peek_bits(br, &code, 7);
+    for (uint16_t sym = 256; sym <= 279; sym++)
+    {
+        if (code == ll_codes[sym].code) {
+            bitreader_drop_bits(br, 7);
+            return sym;
+        }
+    }
+
+    // Try 8-bit codes (0–143 and 280–287)
+    bitreader_peek_bits(br, &code, 8);
+
+    for (uint16_t sym = 0; sym <= 143; sym++) {
+        if (code == ll_codes[sym].code) {
+            bitreader_drop_bits(br, 8);
+            return sym;
+        }
+    }
+
+    for (uint16_t sym = 280; sym <= 287; sym++) {
+        if (code == ll_codes[sym].code) {
+            bitreader_drop_bits(br, 8);
+            return sym;
+        }
+    }
+
+    // Try 9-bit codes (144–255)
+    bitreader_peek_bits(br, &code, 9);
+    for (uint16_t sym = 144; sym <= 255; sym++) {
+        if (code == ll_codes[sym].code) {
+            bitreader_drop_bits(br, 9);
+            return sym;
+        }
+    }
+
+    fprintf(stderr, "Error: invalid Huffman code in fixed LL table\n");
+    return 256; // pretend EOB to avoid crash
 }

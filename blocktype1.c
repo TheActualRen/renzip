@@ -316,9 +316,9 @@ B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file)
 
     while (1)
     {
-        uint16_t sym;
+        uint32_t sym;
 
-        status = decode_fixed_literal_or_length(&br, &sym);
+        status = decode_fixed_literal_or_length_b1(&br, &sym);
         if (status != B1_SUCCESS)
         {
             goto cleanup;
@@ -347,7 +347,7 @@ B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file)
         else if (sym >= 257 && sym <= 285)
         {
             uint16_t length;
-            status = decode_length_symbol(sym, &br, &length);
+            status = decode_length_symbol_b1(sym, &br, &length);
 
             if (status != B1_SUCCESS)
             {
@@ -355,7 +355,7 @@ B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file)
             }
 
             uint16_t dist_sym;
-            status = decode_fixed_distance_symbol(&br, &dist_sym);
+            status = decode_fixed_distance_symbol_b1(&br, &dist_sym);
 
             if (status != B1_SUCCESS)
             {
@@ -365,7 +365,7 @@ B1_STATUS blocktype1_decoding(FILE *input_file, FILE *output_file)
 
             uint16_t distance;
 
-            status = decode_distance_symbol(dist_sym, &br, &distance);
+            status = decode_distance_symbol_b1(dist_sym, &br, &distance);
             if (status != B1_SUCCESS)
             {
                 goto cleanup;

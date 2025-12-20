@@ -5,8 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static HuffmanDynamicCode *new_node(uint16_t symbol, uint32_t freq)
-{
+static HuffmanDynamicCode *new_node(uint16_t symbol, uint32_t freq) {
     HuffmanDynamicCode *node = malloc(sizeof(HuffmanDynamicCode));
     if (!node)
     {
@@ -215,4 +214,65 @@ void free_huffman_tree(HuffmanDynamicCode *node)
     free_huffman_tree(node->left);
     free_huffman_tree(node->right);
     free(node);
+}
+
+uint32_t decode_dynamic_literal_or_length(BitReader *br, HuffmanDynamicCode *tree)
+{
+    HuffmanDynamicCode *node = tree;
+
+    while (node->left || node->right)
+    { 
+        // leaf check
+        uint32_t bit = 0;
+        bitreader_read_bits(br, &bit, 1);
+        node = (bit == 0) ? node->left : node->right;
+        if (!node)
+        {
+            return 0xFFFFFFFF; // error
+        }
+    }
+    return node->symbol;
+}
+
+uint32_t decode_dynamic_distance_symbol(BitReader *br,
+                                        HuffmanDynamicCode *dist_tree)
+{
+    HuffmanDynamicCode *node = dist_tree;
+    while (node->left || node->right)
+    {
+        uint32_t bit = 0;
+        bitreader_read_bits(br, &bit, 1);
+        node = (bit == 0) ? node->left : node->right;
+        if (!node)
+            return 0xFFFFFFFF;
+    }
+    return node->symbol;
+}
+
+B2_STATUS decode_dynamic_literal_or_length_b2(BitReader *br, HuffmanDynamicCode *ll_tree,
+        uint32_t *out_sym)
+{
+    int32_t sym = decode_dynamic_literal_or_length(br, ll_tree);
+
+    if (sym < 0)
+    {
+        return B2_DECODE_FAILURE;
+    }
+
+    *out_sym = (uint32_t)sym;
+    return B2_SUCCESS;
+}
+
+B2_STATUS decode_dynamic_distance_symbol_b2(BitReader *br, HuffmanDynamicCode *dist_tree,
+        uint16_t *out_sym)
+{
+    int32_t sym = decode_dynamic_distance_symbol(br, dist_tree);
+
+    if (sym < 0 || sym > 29)
+    {
+        return B2_DECODE_FAILURE;
+    }
+
+    *out_sym = (uint16_t)sym;
+    return B2_SUCCESS;
 }
