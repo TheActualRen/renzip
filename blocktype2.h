@@ -69,4 +69,5 @@ B2_STATUS emit_dynamic_huffman_header(BitWriter *bw, DynamicHuffmanTables *t);
 B2_STATUS blocktype2_encoding(FILE *input_file, FILE *output_file);
 B2_STATUS blocktype2_decoding(FILE *input_file, FILE *output_file);
 
+B2_STATUS gunzip_decoder(FILE *input_file, FILE *output_file);
 #endif

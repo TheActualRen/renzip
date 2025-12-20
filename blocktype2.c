@@ -14,7 +14,7 @@ static const uint8_t CL_ORDER[] = {16, 17, 18, 0, 8,  7, 9,  6, 10, 5,
                                    11, 4,  12, 3, 13, 2, 14, 1, 15};
 
 B2_STATUS build_dynamic_huffman_tables(const LZ77TokenList *tokens,
-                                       DynamicHuffmanTables *t)
+        DynamicHuffmanTables *t)
 {
     uint32_t ll_freqs[286] = {0};
     uint32_t dist_freqs[30] = {0};
@@ -119,9 +119,8 @@ fail:
     return B2_MALLOC_FAILURE;
 }
 
-B2_STATUS emit_dynamic_huffman_tokens(BitWriter *bw,
-                                      const LZ77TokenList *tokens,
-                                      const HuffmanEmitTables *t)
+B2_STATUS emit_dynamic_huffman_tokens(BitWriter *bw, const LZ77TokenList *tokens,
+        const HuffmanEmitTables *t)
 {
     BITWRITER_STATUS bw_status;
 
@@ -139,7 +138,8 @@ B2_STATUS emit_dynamic_huffman_tokens(BitWriter *bw,
             if (bw_status != BITWRITER_SUCCESS)
                 return B2_WRITING_FAILURE;
         }
-        else /* LZ77_MATCH */
+
+        else
         {
             uint16_t ll_sym, ll_extra;
             uint8_t ll_bits;
@@ -737,5 +737,312 @@ cleanup:
     free_huffman_tree(ll_tree);
     free_huffman_tree(dist_tree);
 
+    return status;
+}
+
+B2_STATUS gunzip_decoder(FILE *input_file, FILE *output_file)
+{
+    B2_STATUS status = B2_SUCCESS;
+
+    uint8_t *input_buf = NULL;
+    uint8_t *output_data = NULL;
+
+    HuffmanDynamicCode *ll_tree = NULL;
+    HuffmanDynamicCode *dist_tree = NULL;
+    HuffmanDynamicCode *cl_tree = NULL;
+
+    GZIP_HEADER_STATUS header_status =
+        read_gzip_header_true(input_file);
+
+    if (header_status != GZIP_HEADER_SUCCESS)
+        return B2_HEADER_FAILURE;
+
+    long deflate_start = ftell(input_file);
+    if (deflate_start < 0)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    if (fseek(input_file, 0, SEEK_END) != 0)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    long file_size = ftell(input_file);
+    if (file_size < 0)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    if (file_size < deflate_start + 8)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    size_t compressed_size = (size_t)(file_size - deflate_start - 8);
+
+    if (fseek(input_file, deflate_start, SEEK_SET) != 0)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    input_buf = malloc(compressed_size);
+    if (!input_buf)
+    {
+        status = B2_MALLOC_FAILURE;
+        goto cleanup;
+    }
+
+    if (fread(input_buf, 1, compressed_size, input_file) != compressed_size)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    BitReader br;
+    if (bitreader_init(&br, input_buf, compressed_size) != BITREADER_SUCCESS)
+    {
+        status = B2_READ_FAILURE;
+        goto cleanup;
+    }
+
+    size_t output_capacity = 1024;
+    size_t out_size = 0;
+    output_data = malloc(output_capacity);
+
+    if (!output_data)
+    {
+        status = B2_MALLOC_FAILURE;
+        goto cleanup;
+    }
+
+    int last_block = 0;
+
+    while (!last_block)
+    {
+        uint32_t bfinal = 0, btype = 0;
+
+        if (bitreader_read_bits(&br, &bfinal, 1) != BITREADER_SUCCESS ||
+            bitreader_read_bits(&br, &btype, 2) != BITREADER_SUCCESS)
+        {
+            status = B2_READ_FAILURE;
+            goto cleanup;
+        }
+
+        last_block = (int)bfinal;
+
+        if (btype != BTYPE2)
+        {
+            status = B2_INVALID_BLOCKTYPE;
+            goto cleanup;
+        }
+
+        uint32_t tmp;
+        uint16_t HLIT, HDIST, HCLEN;
+
+        if (bitreader_read_bits(&br, &tmp, 5) != BITREADER_SUCCESS) goto cleanup;
+        HLIT = (uint16_t)(tmp + 257);
+
+        if (bitreader_read_bits(&br, &tmp, 5) != BITREADER_SUCCESS) goto cleanup;
+        HDIST = (uint16_t)(tmp + 1);
+
+        if (bitreader_read_bits(&br, &tmp, 4) != BITREADER_SUCCESS) goto cleanup;
+        HCLEN = (uint16_t)(tmp + 4);
+
+        static const uint8_t cl_order[19] =
+            {16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15};
+
+        uint8_t cl_lengths[19] = {0};
+
+        for (uint16_t i = 0; i < HCLEN; i++)
+        {
+            if (bitreader_read_bits(&br, &tmp, 3) != BITREADER_SUCCESS)
+                goto cleanup;
+            cl_lengths[cl_order[i]] = (uint8_t)tmp;
+        }
+
+        cl_tree = build_huffman_tree_from_lengths(cl_lengths, 19);
+        if (!cl_tree)
+        {
+            status = B2_DECODE_FAILURE;
+            goto cleanup;
+        }
+
+        uint8_t ll_lengths[286] = {0};
+        uint8_t dist_lengths[30] = {0};
+
+        uint16_t idx = 0;
+        uint16_t total = (uint16_t)(HLIT + HDIST);
+
+        while (idx < total)
+        {
+            uint32_t sym = decode_dynamic_literal_or_length(&br, cl_tree);
+
+            if (sym <= 15)
+            {
+                if (idx < HLIT)
+                    ll_lengths[idx++] = (uint8_t)sym;
+                else
+                    dist_lengths[idx++ - HLIT] = (uint8_t)sym;
+            }
+            else if (sym == 16)
+            {
+                uint32_t rep;
+                if (bitreader_read_bits(&br, &rep, 2) != BITREADER_SUCCESS)
+                    goto cleanup;
+
+                uint8_t val = (idx == 0) ? 0 :
+                    (idx <= HLIT ? ll_lengths[idx - 1]
+                                 : dist_lengths[idx - HLIT - 1]);
+
+                for (uint32_t j = 0; j < rep + 3 && idx < total; j++)
+                {
+                    if (idx < HLIT)
+                        ll_lengths[idx++] = val;
+                    else
+                        dist_lengths[idx++ - HLIT] = val;
+                }
+            }
+            else if (sym == 17)
+            {
+                uint32_t rep;
+                if (bitreader_read_bits(&br, &rep, 3) != BITREADER_SUCCESS)
+                    goto cleanup;
+
+                for (uint32_t j = 0; j < rep + 3 && idx < total; j++)
+                {
+                    if (idx < HLIT)
+                        ll_lengths[idx++] = 0;
+                    else
+                        dist_lengths[idx++ - HLIT] = 0;
+                }
+            }
+            else if (sym == 18)
+            {
+                uint32_t rep;
+                if (bitreader_read_bits(&br, &rep, 7) != BITREADER_SUCCESS)
+                    goto cleanup;
+
+                for (uint32_t j = 0; j < rep + 11 && idx < total; j++)
+                {
+                    if (idx < HLIT)
+                        ll_lengths[idx++] = 0;
+                    else
+                        dist_lengths[idx++ - HLIT] = 0;
+                }
+            }
+            else
+            {
+                status = B2_DECODE_FAILURE;
+                goto cleanup;
+            }
+        }
+
+        free_huffman_tree(cl_tree);
+        cl_tree = NULL;
+
+        ll_tree = build_huffman_tree_from_lengths(ll_lengths, HLIT);
+        dist_tree = build_huffman_tree_from_lengths(dist_lengths, HDIST);
+
+        if (!ll_tree || !dist_tree)
+        {
+            status = B2_DECODE_FAILURE;
+            goto cleanup;
+        }
+
+        for (;;)
+        {
+            uint32_t sym = decode_dynamic_literal_or_length(&br, ll_tree);
+
+            if (sym < 256)
+            {
+                if (out_size >= output_capacity)
+                {
+                    output_capacity *= 2;
+                    uint8_t *tmp_out = realloc(output_data, output_capacity);
+                    if (!tmp_out)
+                    {
+                        status = B2_MALLOC_FAILURE;
+                        goto cleanup;
+                    }
+                    output_data = tmp_out;
+                }
+                output_data[out_size++] = (uint8_t)sym;
+            }
+            else if (sym == 256)
+            {
+                break;
+            }
+            else
+            {
+                uint16_t length = decode_length_symbol(sym, &br);
+                uint32_t dist_sym =
+                    decode_dynamic_distance_symbol(&br, dist_tree);
+                uint16_t distance =
+                    decode_distance_symbol(dist_sym, &br);
+
+                if (distance == 0 || distance > out_size)
+                {
+                    status = B2_DECODE_FAILURE;
+                    goto cleanup;
+                }
+
+                for (uint16_t i = 0; i < length; i++)
+                {
+                    if (out_size >= output_capacity)
+                    {
+                        output_capacity *= 2;
+                        uint8_t *tmp_out = realloc(output_data, output_capacity);
+                        if (!tmp_out)
+                        {
+                            status = B2_MALLOC_FAILURE;
+                            goto cleanup;
+                        }
+                        output_data = tmp_out;
+                    }
+
+                    output_data[out_size] =
+                        output_data[out_size - distance];
+                    out_size++;
+                }
+            }
+        }
+
+        free_huffman_tree(ll_tree);
+        free_huffman_tree(dist_tree);
+        ll_tree = dist_tree = NULL;
+    }
+
+    uint32_t stored_crc = 0, stored_isize = 0;
+
+    if (fseek(input_file, file_size - 8, SEEK_SET) != 0)
+        goto cleanup;
+
+    if (fread(&stored_crc, 4, 1, input_file) != 1 ||
+        fread(&stored_isize, 4, 1, input_file) != 1)
+        goto cleanup;
+
+    uint32_t calc_crc = update_crc(0, output_data, out_size);
+
+    if (stored_crc != calc_crc ||
+        stored_isize != (out_size & 0xFFFFFFFF))
+    {
+        status = B2_DECODE_FAILURE;
+        goto cleanup;
+    }
+
+    fwrite(output_data, 1, out_size, output_file);
+
+cleanup:
+    free(input_buf);
+    free(output_data);
+    free_huffman_tree(cl_tree);
+    free_huffman_tree(ll_tree);
+    free_huffman_tree(dist_tree);
     return status;
 }
